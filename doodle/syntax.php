@@ -158,7 +158,7 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
      */
     function parseChoices($choiceStr) {
         $choices = array();
-        preg_match_all('/^   \* (.*?)$/m', $choiceStr, $matches, PREG_PATTERN_ORDER);
+        preg_match_all('/^  \* (.*?)$/m', $choiceStr, $matches, PREG_PATTERN_ORDER);
         foreach ($matches[1] as $choice) {
             $choice = hsc(trim($choice));
             if (!empty($choice)) {
@@ -210,7 +210,7 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         // ----- read doodle data from file (if there are choices given and there is a file)
         if (count($this->choices) > 0) {
             $this->doodle = $this->readDoodleDataFromFile();
-            $this->addListedGroupsToDoodleArray();
+//            $this->doodle = $this->addListedGroupsToDoodleArray( $this->doodle );
         }
 
         //FIXME: count($choices) may be different from number of choices in $doodle data!
@@ -566,7 +566,7 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         return $doodle;
     }
 
-    function addListedGroupsToDoodleArray()
+    function addListedGroupsToDoodleArray( $doodle )
     {
         if(   !method_exists($auth,"retrieveUsers") 
 	   || $this->params['list'] == '' )
@@ -583,15 +583,19 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
 	$doodleUsers = array();
 	foreach( $users as $user => $info )
 	{
-            $doodleUsers[$info['name']]['username'] = $user ;
-            $doodleUsers[$info['name']]['coices'] = array() ;
-            $doodleUsers[$info['name']]['ip'] = '127.0.0.1';
-            $doodleUsers[$info['name']]['time'] = 0 ;
+            $name = "$info['name']" ;
+            $doodleUsers[$name]['username'] = $user ;
+            $doodleUsers[$name]['choices'] = array() ;
+            $doodleUsers[$name]['ip'] = '127.0.0.1';
+            $doodleUsers[$name]['time'] = 0 ;
 	}
-
-	$this->doodle = array_merge( $this->doodle, $doodleUsers)
-
-
+/*
+        $doodleUsers['Tester']['choices'] = array();
+        $doodleUsers['Tester']['username'] = "test";
+        $doodleUsers['Tester']['ip'] = "127.0.0.2";
+        $doodleUsers['Tester']['time'] = 1234567 ;
+*/      
+	return $doodle ;//array_merge( $this->doodle, $doodleUsers);
     }
     
     /**
