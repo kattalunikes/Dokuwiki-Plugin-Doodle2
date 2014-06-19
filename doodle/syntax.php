@@ -22,9 +22,11 @@ require_once(DOKU_PLUGIN.'syntax.php');
  * <doodle
  *   title="What do you like best?"
  *   auth="none|ip|user"
+ *   list="group1|group2"
  *   adminUsers="user1|user2"
  *   adminGroups="group1|group2"
  *   voteType="default|multi"
+ *   closeon="timestring"
  *   closed="true|false" >
  *     * Option 1 
  *     * Option 2 **some wikimarkup** \\ is __allowed__!
@@ -81,6 +83,7 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         $params = array(
             'title'          => 'Default title',
             'auth'           => self::AUTH_NONE,
+            'list'           => '',
             'adminUsers'     => '',
             'adminGroups'    => '',
             'adminMail'      => null,
@@ -105,6 +108,9 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
                if (strcasecmp($value, 'USER') == 0) {
                    $params['auth'] = self::AUTH_USER;
                }
+            } else
+            if (strcmp($name, "LIST") == 0) {
+                $params['list'] = $value;
             } else
             if (strcmp($name, "ADMINUSERS") == 0) {
                 $params['adminUsers'] = $value;
@@ -204,6 +210,7 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         // ----- read doodle data from file (if there are choices given and there is a file)
         if (count($this->choices) > 0) {
             $this->doodle = $this->readDoodleDataFromFile();
+            $this->addListedGroupsToDoodleArray();
         }
 
         //FIXME: count($choices) may be different from number of choices in $doodle data!
@@ -557,6 +564,34 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         }
         //debout("read from $dfile", $doodle);
         return $doodle;
+    }
+
+    function addListedGroupsToDoodleArray()
+    {
+        if(   !method_exists($auth,"retrieveUsers") 
+	   || $this->params['list'] == '' )
+	   return;
+
+	$groups = explode( '|', $this->params['list'] );
+
+	$users = array();
+        foreach ($groups as $grp) {
+            $getuser = $auth->retrieveUsers(0,-1,array('grps'=>'^'.preg_quote($grp,'/').'$'));
+            $users = array_merge($users,$getuser);
+        }
+
+	$doodleUsers = array();
+	foreach( $users as $user => $info )
+	{
+            $doodleUsers[$info['name']]['username'] = $user ;
+            $doodleUsers[$info['name']]['coices'] = array() ;
+            $doodleUsers[$info['name']]['ip'] = '127.0.0.1';
+            $doodleUsers[$info['name']]['time'] = 0 ;
+	}
+
+	$this->doodle = array_merge( $this->doodle, $doodleUsers)
+
+
     }
     
     /**
