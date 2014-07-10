@@ -158,15 +158,16 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
      */
     function parseChoices($choiceStr) {
         $choices = array();
-        preg_match_all('/^   \* (.*?)$/m', $choiceStr, $matches, PREG_PATTERN_ORDER);
-        foreach ($matches[1] as $choice) {
+        preg_match_all('/^([ ]+)\* (.*?)$/m', $choiceStr, $matches, PREG_PATTERN_ORDER);
+        foreach ($matches[2] as $choice) {
             $choice = hsc(trim($choice));
             if (!empty($choice)) {
                 $choice = preg_replace('#\\\\\\\\#', '<br />', $choice);       # two(!) backslashes for a newline
                 $choice = preg_replace('#\*\*(.*?)\*\*#', '<b>\1</b>', $choice);   # bold
                 $choice = preg_replace('#__(.*?)__#', '<u>\1</u>', $choice);   # underscore
                 $choice = preg_replace('#//(.*?)//#', '<i>\1</i>', $choice);   # italic
-                $choices []= $choice;
+		$index  = hash("crc32b", $choice );
+                $choices[]= array( $index, $choice);
             }
         }
         //debout($choices);
@@ -210,7 +211,7 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         // ----- read doodle data from file (if there are choices given and there is a file)
         if (count($this->choices) > 0) {
             $this->doodle = $this->readDoodleDataFromFile();
-            $this->doodle = $this->addListedGroupsToDoodleArray( $this->doodle );
+            $this->doodle = $this->addListedGroupsToDoodleArray();
         }
 
         //FIXME: count($choices) may be different from number of choices in $doodle data!
@@ -267,8 +268,11 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         
         // ---- fill $this->template variable for doodle_template.php (column by column)
         $this->template['title']      = hsc($this->params['title']);
-        $this->template['choices']    = $this->choices;
-        $this->template['result']     = $this->params['closed'] ? $this->getLang('final_result') : $this->getLang('count');
+        foreach( $this->choices as $c )
+	{
+	    $this->template['choices'][]    = $c[1];
+	}
+	$this->template['result']     = $this->params['closed'] ? $this->getLang('final_result') : $this->getLang('count');
         $this->template['doodleData'] = array();  // this will be filled with some HTML snippets
         $this->template['formId']     = $formId;
         if ($this->params['closed']) {
@@ -281,15 +285,33 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
                 if (!empty($userData['username'])) {
                   $this->template['doodleData']["$fullname"]['username'] = '&nbsp;('.$userData['username'].')';
                 }
-                if (in_array($col, $userData['choices'])) {
-                    $timeLoc = strftime($conf['dformat'], $userData['time']);  // localized time of vote
-                    $this->template['doodleData']["$fullname"]['choice'][$col] = 
-                        '<td  class="centeralign" style="background-color:#AFA"><img src="'.DOKU_BASE.'lib/images/success.png" title="'.$timeLoc.'"></td>';
-                    $this->template['count']["$col"]++;
-                } else {
-                    $this->template['doodleData']["$fullname"]['choice'][$col] = 
-                        '<td  class="centeralign" style="background-color:#FCC">&nbsp;</td>';
-                }                
+
+		    $isInArray  = false;
+		    $isSelected = false;
+		    foreach($userData['choices'] as $c)
+		    {
+			if(!isset( $c[0] )) continue; // old data
+			if($c[0] == $this->choices[$col][0])
+			{
+			    $isInArray  = true;
+			    $isSelected = $c[1];
+			}
+		    }
+		    if ($isInArray) {
+			$timeLoc = strftime($conf['dformat'], $userData['time']);  // localized time of vote
+			if($isSelected)
+			{
+			    $this->template['doodleData']["$fullname"]['choice'][$col] = 
+			        '<td  class="centeralign" style="background-color:#AFA"><img src="'.DOKU_BASE.'lib/images/success.png" title="'.$timeLoc.'"></td>';
+			    $this->template['count']["$col"]++;
+			} else {
+			    $this->template['doodleData']["$fullname"]['choice'][$col] = 
+			        '<td  class="centeralign" style="background-color:#FCC">&nbsp;</td>';
+			}
+		    }else{
+			$this->template['doodleData']["$fullname"]['choice'][$col] = 
+			    '<td  class="centeralign" style="background-color:#EEC"></td>';
+		    }
             }
         }
         
@@ -343,7 +365,13 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
                 return;
             }
         }
-        
+	
+	$selected = array();
+	foreach( $this->choices as $i => $c )
+	{
+	    $selected[] = array( $c[0], in_array( $i, $selected_indexes ));
+	}
+	$selected_indexes = $selected;       
         //---- check if user is allowed to vote, according to 'auth' parameter
         
         //if AUTH_USER, then user must be logged in
@@ -403,8 +431,12 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         if (!$this->isAllowedToEditEntry($fullname)) return;
             
         $this->template['editEntry']['fullname']         = $fullname;
-        $this->template['editEntry']['selected_indexes'] = $this->doodle["$fullname"]['choices'];
-        // $fullname will be shown in the input row
+        foreach($this->doodle["$fullname"]['choices'] as $i => $c)
+	{
+	    if($c[1])
+	      $this->template['editEntry']['selected_indexes'][] = $i ;
+	}
+	// $fullname will be shown in the input row
     }
 
     /** ACTION: delete an entry completely */
@@ -566,37 +598,51 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
         return $doodle;
     }
 
-    function addListedGroupsToDoodleArray( $doodle )
+    function addListedGroupsToDoodleArray()
     {
+	global $auth;
+
         if(   !method_exists($auth,"retrieveUsers") 
-	   || $this->params['list'] == '' )
-	   return;
+            || empty($this->params['list'])
+	   )
+        {
+	    return $this->doodle ;
+        }
 
-	$groups = explode( '|', $this->params['list'] );
 
+	if( !strpos( '|' , $this->params['list'] ) )
+        {
+	    $groups = explode( '|', $this->params['list'] );
+	}else{
+	    $groups[0] = $this->params['list'];
+	}
+	
 	$users = array();
-        foreach ($groups as $grp) {
-            $getuser = $auth->retrieveUsers(0,-1,array('grps'=>'^'.preg_quote($grp,'/').'$'));
+        foreach ($groups as $grp) 
+        {
+            $getuser = $auth->retrieveUsers(0,-1,array('grps'=> $grp ));
             $users = array_merge($users,$getuser);
         }
 
+//	$users = $auth->retrieveUsers(0,-1,array('grps'=> $this->params['list'] ));
+
 	$doodleUsers = array();
+
 	foreach( $users as $user => $info )
 	{
-            $name = "$info['name']";
-            $doodleUsers[$name]]['username'] = "$user" ;
+            $name = $info['name'] ;
+            if( $name == "" || isset( $this->doodle[ $name ] ))
+	    {
+		continue;
+	    }
+
+            $doodleUsers[$name]['username'] = $user ;
             $doodleUsers[$name]['choices'] = array() ;
             $doodleUsers[$name]['ip'] = '127.0.0.1';
-            $doodleUsers[$name]['time'] = 123456789 ;
+            $doodleUsers[$name]['time'] = 0 ;
 	}
 
-        $doodleUsers['Tester']['choices'] = array(2,4);
-        $doodleUsers['Tester']['username'] = "test";
-        $doodleUsers['Tester']['ip'] = "127.0.0.2";
-        $doodleUsers['Tester']['time'] = 123456798 ;
-        
-
-	return array_merge( $doodle, $doodleUsers );
+	return array_merge( $this->doodle, $doodleUsers);
     }
     
     /**
@@ -604,6 +650,14 @@ class syntax_plugin_doodle extends DokuWiki_Syntax_Plugin
      */
     function writeDoodleDataToFile() {
         if (!is_array($this->doodle)) return;
+	
+	// Remove empty Items added by list
+	foreach($this->doodle as $n => $d)
+	{
+	  if($d['time'] == 0)
+	    unset($this->doodle[$n]);
+	}
+	
         $dfile = $this->getDoodleFileName();
         uksort($this->doodle, "strnatcasecmp"); // case insensitive "natural" sort
         io_saveFile($dfile, serialize($this->doodle));
